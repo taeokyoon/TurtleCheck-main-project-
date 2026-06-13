@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /c/Users/taeok/desktop/combine_test/combined_version/src/utils)",
+      "Bash(mkdir -p /c/Users/taeok/desktop/combine_test/combined_version/assets)",
+      "Bash(mkdir -p /c/Users/taeok/desktop/combine_test/combined_version/logs)",
+      "Bash(cp /c/Users/taeok/desktop/combine_test/Advanced-Capstone-Project_mac/assets/mascot.png /c/Users/taeok/desktop/combine_test/combined_version/assets/)",
+      "Bash(python -c ' *)",
+      "Bash(.venv/Scripts/python.exe *)",
+      "Bash(\"C:\\\\Users\\\\taeok\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python311\\\\python.exe\" -c \"import customtkinter; print\\(customtkinter.__version__\\)\")",
+      "Bash(\"C:\\\\Users\\\\taeok\\\\anaconda3\\\\python.exe\" -c \"import customtkinter; print\\(customtkinter.__version__\\)\")",
+      "Bash(\"C:\\\\Users\\\\taeok\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python311\\\\python.exe\" -m pip list)",
+      "Bash(findstr -i custom)",
+      "Bash(findstr -i tkinter)",
+      "Bash(\"C:\\\\Users\\\\taeok\\\\anaconda3\\\\python.exe\" -m pip list)",
+      "Bash(findstr /i \"custom tkinter mediapipe pystray\")",
+      "Bash(Select-String \"custom|mediapipe|pystray\")"
+    ]
+  }
+}

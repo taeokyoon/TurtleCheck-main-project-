@@ -1,0 +1,33 @@
+# ── 핵심 비전 및 AI 라이브러리 ──
+opencv-python>=4.8.0
+mediapipe==0.10.9
+mediapipe-model-maker
+
+# ── [중요] Mac/Windows 공통: MediaPipe 버전 충돌 방지용 ──
+protobuf<4
+
+# ── 트레이 아이콘 (GUI) ──
+pystray>=0.19.0
+Pillow>=10.0.0
+
+# ── 현대적 UI 테마 ──
+customtkinter>=5.2.0
+
+# ── Firebase 클라우드 연동 ──
+firebase-admin>=6.5.0
+
+# ── Firebase Auth REST API 호출 (로그인 기능) ──
+requests>=2.31.0
+
+# ── 환경 변수 로드 (.env 파일 지원) ──
+python-dotenv>=1.0.0
+
+# ── OS별 알림 라이브러리 분기 처리 ──
+winotify; sys_platform == 'win32'
+plyer>=2.1.0; sys_platform == 'darwin'
+
+# google 로그인
+google-auth-oauthlib
+
+# .exe 파일 생성
+pyinstaller
