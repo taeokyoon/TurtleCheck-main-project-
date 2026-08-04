@@ -1,6 +1,10 @@
 # TurtleNeckDetector
 
-웹캠 하나로 거북목 자세를 실시간 감지하는 Windows 백그라운드 앱입니다.
+> **CNN 전이학습 기반 실시간 거북목 감지 및 자세 교정 코칭 시스템**
+> 디지털 헬스케어 / AI 헬스테크 — 대학교 캡스톤 가상 창업 프로젝트
+
+웹캠 하나로 거북목 자세를 실시간 감지하는 크로스플랫폼 백그라운드 앱입니다.
+현재 **v1.0** (MediaPipe 규칙 기반 판정)을 운영 중이며, **v2.0**에서 EfficientNet-B0 전이학습 모델로 판정 엔진을 전면 교체할 예정입니다.
 
 ## 빠른 시작
 
@@ -20,7 +24,7 @@ py -3.11 -m venv .venv
 pip install -r requirements.txt
 
 # 실행
-python turtle_neck.py
+python turtleCheck.py
 ```
 
 트레이 아이콘 우클릭 → **캘리브레이션** → 모니터링 시작
@@ -28,7 +32,7 @@ python turtle_neck.py
 # 실제 워크플로우
 코드 수정
     ↓
-py turtle_neck.py  ← 빠른 테스트 (이걸로 주로 개발)
+py turtleCheck.py  ← 빠른 테스트 (이걸로 주로 개발)
     ↓
 잘 되면 pyinstaller로 빌드  ← .exe 갱신
     ↓

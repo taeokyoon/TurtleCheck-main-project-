@@ -27,3 +27,6 @@ client_secret.json
 
 # 디자인
 .superpowers/
+
+# claude
+.claude/
