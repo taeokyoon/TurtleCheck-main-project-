@@ -1,6 +1,8 @@
 # TurtleNeckDetector — 개발 문서
 
 > 웹캠 하나로 실시간 거북목 자세를 감지하고, 시스템 트레이(Windows / macOS)에서 조용히 동작하며 경고 알림을 보내주는 크로스플랫폼 백그라운드 애플리케이션입니다.
+>
+> **프로젝트 정보**: 대학교 캡스톤 가상 창업 기업 | 업태: 정보통신업 / 소프트웨어 개발 및 공급업 | 사업분야: 디지털 헬스케어 (AI 헬스테크)
 
 ---
 
@@ -15,7 +17,8 @@
 7. [사용 방법](#사용-방법)
 8. [빌드 및 배포](#빌드-및-배포)
 9. [개발 단계 현황](#개발-단계-현황)
-10. [다음 과제](#다음-과제)
+10. [v2.0 고도화 로드맵](#v20-고도화-로드맵)
+11. [다음 과제](#다음-과제)
 
 ---
 
@@ -24,16 +27,15 @@
 - **실시간 자세 감지** — MediaPipe Pose로 코·어깨 좌표(x·y·z)를 추출하여 거북목 여부 판정. z축 보조 가중치(`_Z_WEIGHT`)로 오탐 감소
 - **캘리브레이션** — 사용자의 정상 자세를 기준값으로 설정, 개인 체형·카메라 위치 차이 자동 보정
 - **히스테리시스 판정** — 진입/해제 임계값을 다르게 설정해 상태 떨림(flickering) 방지
-- **로그인 / 비로그인 모드** — 로그인 없이도 즉시 탐지 가능, 로그인 시 Firebase 통계 연동
 - **시스템 트레이 아이콘** — 창 없이 백그라운드 동작, 아이콘 색상으로 상태 즉시 확인
   - 회색: 캘리브레이션 대기 중
   - 초록: 자세 정상
   - 빨강: 거북목 감지됨
 - **OS 알림** — 거북목 감지 시 10초 쿨다운으로 반복 알림 방지 (Windows: 토스트 알림 / macOS: 데스크탑 알림)
-- **JSON Lines 로그** — 60초마다 `posture_log.jsonl`에 자동 저장
-- **Firestore 업로드** — 로그인 사용자 전용, 오프라인 큐로 네트워크 단절 복구 지원
-- **Firebase 누적 통계** — Firestore 직접 쿼리로 오늘·7일·30일 누적 통계 조회 (모바일 앱 데이터 포함)
+- **JSON Lines 로그** — 60초마다 `logs/local/posture_log.jsonl`에 자동 저장 (로컬 전용, 클라우드 업로드 없음)
 - **구조화 로깅** — `logs/app.log`에 회전 파일 로그 자동 기록
+
+> 로그인·클라우드 통계·계정 동기화는 현재 지원하지 않습니다. 핵심 감지 기능에 집중하기 위해 의도적으로 제외했습니다 (배경은 [다음 과제](#다음-과제) 참고).
 
 ---
 
@@ -43,25 +45,23 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      turtle_neck.py                         │
-│                                                             │
-│  AppState (공유 상태)                                        │
-│  ├── auth_manager   detector    uploader                    │
-│  ├── logger         upload_queue                            │
-│  ├── tk_queue       frame_queue   show_visual               │
-│  └── stop_event     tray_icon     last_save                 │
-│                                                             │
-│  [메인 스레드]          [백그라운드 스레드 1]  [스레드 2]      │
-│  tkinter mainloop()    camera_loop(app)   upload_loop(app)  │
-│  _poll() — tk_queue    자세 감지·판정·로그  Firestore 업로드  │
-│  트레이 콜백 실행        frame_queue 공급                     │
+│                      turtleCheck.py                          │
+│                                                                │
+│  AppState (공유 상태)                                          │
+│  ├── detector       logger                                    │
+│  ├── tk_queue       frame_queue   show_visual                 │
+│  └── stop_event     tray_icon     last_save                   │
+│                                                                │
+│  [메인 스레드]              [백그라운드 스레드]                  │
+│  tkinter mainloop()        camera_loop(app)                   │
+│  _poll() — tk_queue        자세 감지 · 판정 · 로그 저장          │
+│  트레이 콜백 실행                                                │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 > **스레드 설계 원칙**
 > - tkinter는 반드시 메인 스레드에서 실행 (pystray는 별도 daemon 스레드)
 > - 백그라운드 스레드 → 메인 스레드 UI 호출은 `app.tk_queue`를 통해 직렬화
-> - `logger`·`upload_queue` 교체 시 `app.logger_lock`으로 보호
 
 ---
 
@@ -69,11 +69,10 @@
 
 ```
 AppState 초기화
-    │  AuthManager, PostureDetector, FirebaseUploader
-    │  load_session() → switch_logger(uid)
+    │  PostureDetector, PostureLogger(logs/local)
     ▼
 StartupWindow.run()
-    │  카메라 피드 + 로그인/캘리브레이션 UI
+    │  카메라 피드 + 캘리브레이션 UI
     │  on_done() 호출 시 트레이 모드 전환
     ▼
 build_tray() + _make_callbacks(app)
@@ -81,7 +80,6 @@ build_tray() + _make_callbacks(app)
     ▼
 스레드 시작
     ├── camera_loop(app)   — daemon
-    ├── upload_loop(app)   — daemon
     └── tray_icon.run()    — daemon
     ▼
 tkinter mainloop()  ← _poll()이 200ms마다 tk_queue 소비
@@ -96,24 +94,29 @@ tkinter mainloop()  ← _poll()이 200ms마다 tk_queue 소비
     │
     ▼
 MediaPipe Pose
-    │  NOSE, LEFT/RIGHT_SHOULDER 랜드마크 추출
+    │  NOSE, LEFT/RIGHT_SHOULDER, LEFT/RIGHT_EAR 랜드마크 추출
     ▼
-_calc_score()
-    │  y_score    = (shoulder_y - nose_y)
-    │  z_forward  = nose_z - shoulder_avg_z   (고개 숙임 시 z 기여 억제)
-    │  score      = (y_score + Z_WEIGHT * z_forward * z_gate) / shoulder_width
+_calc_features()
+    │  y_score       = (shoulder_y_avg - nose_y) / shoulder_width
+    │  z_forward     = (nose_z - shoulder_z_avg) / shoulder_width      (고개 숙임 시 z 기여 억제)
+    │  head_tilt     = (left_ear_y - right_ear_y) / shoulder_width
+    │  ear_z_offset  = (ear_z_avg - shoulder_z_avg) / shoulder_width
+    │  → PostureFeatures(y_score, z_forward, head_tilt, ear_z_offset) 로 4개 지표를 분리 보존
+    ▼
+EMA 스무딩 (_ema, alpha=0.3) — 프레임간 흔들림 완화
     ▼
 슬라이딩 윈도우 (deque, maxlen=200, 유효기간 1초)
-    │  최근 1초 평균 score 계산 (최소 5샘플)
+    │  최근 1초 평균 피처 벡터 계산 (최소 5샘플)
     ▼
 update() — 1초마다 판정
-    │  deviation = avg - baseline_score
+    │  score     = _combine(avg_features)   ※ 현재는 y_score/z_forward만 반영 (v1 규칙 기반 유지)
+    │  deviation = score - baseline_score
     │  deviation < -0.10  →  is_turtle = True   (거북목 진입)
     │  deviation > -0.05  →  is_turtle = False  (정상 복귀)
     ▼
 ┌─────────────────┬──────────────────┬────────────────────┐
 트레이 아이콘 갱신  Windows 알림        PostureLogger.tick()
-set_tray_state()  (10초 쿨다운)       60초마다 flush → enqueue
+set_tray_state()  (10초 쿨다운)       60초마다 flush → posture_log.jsonl
 ```
 
 ---
@@ -123,12 +126,8 @@ set_tray_state()  (10초 쿨다운)       60초마다 flush → enqueue
 ```
 logs/
 ├── app.log                   ← 구조화 로그 (RotatingFileHandler, 1MB × 3)
-├── session.json              ← 로그인 세션 (uid, email, logged_in_at)
-├── anonymous/                ← 비로그인 데이터
-│   └── posture_log.jsonl
-└── {uid}/                    ← 로그인 사용자별
-    ├── posture_log.jsonl
-    └── upload_queue.jsonl    ← 업로드 대기/완료/실패 레코드
+└── local/
+    └── posture_log.jsonl     ← 분 단위 자세 판정 기록
 ```
 
 #### `posture_log.jsonl` 레코드 형식
@@ -145,20 +144,6 @@ logs/
 | `turtle_seconds` | int | 거북목 판정 초 수 |
 | `total_seconds` | int | 유효 측정 초 수 |
 
-#### Firestore 경로
-
-```
-hour/
-└── {uid}/
-    └── {YYYY-MM-DD}/
-        └── {H}~{H+1}/          ← 시간 단위 문서
-            ├── total_tracked_seconds
-            ├── total_turtle_seconds
-            ├── bad_posture_count
-            ├── log_data[]
-            └── uploaded_at
-```
-
 ---
 
 ## 폴더 구조
@@ -168,32 +153,31 @@ TurtleNeckDetector/
 │
 ├── src/
 │   ├── __init__.py
-│   ├── auth.py              ← Firebase Auth REST API + 세션 관리
 │   ├── detector.py          ← MediaPipe 자세 점수 계산 + 히스테리시스 판정
 │   ├── log_config.py        ← 앱 전체 로깅 설정 (콘솔 + 회전 파일)
 │   ├── logger.py            ← JSON Lines 분 단위 로컬 로그 저장
-│   ├── startup_window.py    ← tkinter 시작창(StartupWindow) / 설정창(SettingsWindow) / 인증창(AuthWindow)
+│   ├── startup_window.py    ← tkinter 시작창(StartupWindow) / 설정창(SettingsWindow)
 │   ├── tray_app.py          ← pystray 트레이 아이콘 + 알림
 │   └── utils/
-│       ├── firebase_uploader.py  ← Firestore 업로드
-│       ├── notifier.py           ← OS별 알림 추상화 (Windows/macOS/기타)
-│       └── upload_queue.py       ← JSONL 기반 오프라인 업로드 큐
+│       └── notifier.py      ← OS별 알림 추상화 (Windows/macOS/기타)
 │
 ├── assets/
 │   └── mascot.png           ← UI 마스코트 이미지
 │
 ├── logs/                    ← 런타임 자동 생성 (.gitignore)
+│   ├── app.log
+│   └── local/posture_log.jsonl
 │
-├── turtle_neck.py           ← 진입점: AppState + 스레드 오케스트레이션
-├── config.json              ← 임계값·저장 주기 설정
-├── .env                     ← 시크릿 (Firebase API 키, .gitignore)
-├── .env.example             ← 팀원용 환경 변수 템플릿
-├── firebase_key.json        ← Firestore 서비스 계정 키 (.gitignore)
+├── turtleCheck.py           ← 진입점: AppState + 스레드 오케스트레이션
+├── config.json               ← 임계값·저장 주기 설정
+├── .env                      ← 환경 변수 (필요 시 사용, .gitignore)
+├── .env.example               ← 팀원용 환경 변수 템플릿
 │
-├── CLAUDE.md                ← Claude Code 컨텍스트 파일
-├── DEVELOP.md               ← 이 파일
+├── AGENTS.md                 ← Claude Code 등 AI 에이전트용 컨텍스트 파일
+├── DEVELOP.md                 ← 이 파일
 ├── README.md
 ├── requirements.txt
+├── TurtleNeckDetector.spec    ← PyInstaller 빌드 스펙
 └── .gitignore
 ```
 
@@ -201,17 +185,13 @@ TurtleNeckDetector/
 
 ## 모듈 설명
 
-### `turtle_neck.py` — 진입점
+### `turtleCheck.py` — 진입점
 
 | 구성요소 | 설명 |
 |---|---|
 | `AppState` | 앱 전체 공유 상태 클래스. 전역 변수 대신 단일 인스턴스로 관리 |
-| `AppState.switch_logger(uid)` | 로그인/로그아웃 시 `logger`·`upload_queue` 경로 교체 |
-| `AppState.get_user_dir(uid)` | `logs/{uid}` 또는 `logs/anonymous` 경로 반환 |
 | `_make_callbacks(app)` | 트레이 메뉴 콜백 팩토리. `app`을 클로저로 캡처해 딕셔너리 반환 |
 | `camera_loop(app)` | 백그라운드 스레드: 프레임 수집 → 점수 계산 → 판정 → 로그 저장 |
-| `upload_loop(app)` | 백그라운드 스레드: 60초 간격 Firestore 업로드 |
-| `_show_stats(app)` | 로컬 JSONL 기반 오늘 통계 집계 → tk_queue로 팝업 전달 |
 
 **주요 상수**
 
@@ -234,27 +214,16 @@ TurtleNeckDetector/
 | `_MIN_SCORES` | `5` | 판정에 필요한 최소 샘플 수 |
 | `_Z_WEIGHT` | `0.3` | z축 보조 가중치 (0 = y축 전용) |
 | `_Z_GATE_Y` | `0.15` | y 변화량이 이 값 이상이면 z 기여 점진 억제 |
+| `_EMA_ALPHA` | `0.3` | 프레임간 지수이동평균 계수 (작을수록 부드럽게) |
+
+`PostureFeatures = namedtuple(..., ["y_score", "z_forward", "head_tilt", "ear_z_offset"])` — 자세 지표를 하나의 점수로 합치지 않고 벡터로 보존. v1 규칙 기반 판정은 `_combine()`에서 `y_score`/`z_forward`만 사용하지만, 4개 지표 전부 슬라이딩 윈도우에 쌓여 향후 이상탐지 모델(OCSVM 등) 학습 데이터로 재사용 가능.
 
 | 메서드 | 반환 | 설명 |
 |---|---|---|
-| `process_frame(frame)` | `float \| None` | BGR 프레임 → head_forward_score |
-| `process_frame_visual(frame)` | `(score, rgb)` | 점수 + 랜드마크 오버레이 이미지 |
-| `update(score)` | `(did_evaluate, state_changed)` | 윈도우 갱신 + 1초마다 히스테리시스 판정 |
-| `calibrate()` | `float \| None` | 현재 윈도우 평균을 `baseline_score`로 설정 |
-
----
-
-### `src/auth.py` — 인증
-
-Firebase Auth REST API 기반 Google OAuth 로그인. 모든 메서드는 예외를 외부로 던지지 않습니다.
-
-| 메서드 | 설명 |
-|---|---|
-| `login_with_google(client_secret_path)` | Google OAuth → uid 반환 (실패 시 None) |
-| `logout()` | 세션 파일 삭제 + 상태 초기화 |
-| `load_session()` / `save_session()` | `logs/session.json` 세션 영속화 |
-| `get_valid_token()` | 유효한 ID 토큰 반환 (만료 시 자동 갱신) |
-| `get_uid()` / `get_email()` / `is_logged_in()` | 상태 조회 |
+| `process_frame(frame)` | `PostureFeatures \| None` | BGR 프레임 → 자세 피처 벡터 |
+| `process_frame_visual(frame)` | `(features, rgb)` | 피처 벡터 + 랜드마크 오버레이 이미지 |
+| `update(features)` | `(did_evaluate, state_changed)` | EMA 스무딩 → 윈도우 갱신 → 1초마다 히스테리시스 판정 |
+| `calibrate()` | `float \| None` | 현재 윈도우 평균 피처를 `baseline_features`/`baseline_score`로 설정 |
 
 ---
 
@@ -268,38 +237,34 @@ Firebase Auth REST API 기반 Google OAuth 로그인. 모든 메서드는 예외
 
 ---
 
+### `src/logger.py` — 로컬 로그 저장
+
+`PostureLogger(user_dir)` — 초 단위 판정 결과를 누적하다가 `flush()` 호출 시 한 줄의 JSON Lines 레코드로 저장.
+
+| 메서드 | 설명 |
+|---|---|
+| `tick(is_turtle)` | 1초 판정 결과 누적 |
+| `flush()` / `flush_with_record()` | 누적 데이터를 파일에 기록하고 카운터 초기화 |
+
+---
+
 ### `src/startup_window.py` — UI 창
 
 | 구성요소 | 설명 |
 |---|---|
-| `StartupWindow` | 앱 실행 시 메인 UI. 마스코트·카메라 피드·로그인·캘리브레이션 |
-| `SettingsWindow` | 트레이 "설정 화면 열기" 클릭 시 설정 창. 마스코트·인증·캘리브레이션·카메라 포함 |
-| `AuthWindow` | 트레이 "로그인" 클릭 시 컴팩트 로그인 폼 |
-| `_open_signup_dialog()` | `StartupWindow`·`SettingsWindow`·`AuthWindow`에서 공용 사용하는 회원가입 Toplevel |
+| `StartupWindow` | 앱 실행 시 메인 UI. 마스코트·카메라 피드·캘리브레이션 |
+| `SettingsWindow` | 트레이 "설정 화면 열기" 클릭 시 설정 창. 마스코트·캘리브레이션·카메라 포함 |
 | `_load_mascot()` | `assets/mascot.png` 로드 (실패 시 graceful fallback) |
 
 ---
 
-### `src/utils/upload_queue.py` — 업로드 큐
+### `src/tray_app.py` — 트레이 아이콘
 
-JSONL 파일 기반 영속 큐. 각 항목 구조:
-
-```json
-{
-  "id": "<uuid>",
-  "status": "pending | done | failed",
-  "queued_at": "<ISO8601>",
-  "record": { "<posture record>" }
-}
-```
-
-| 메서드 | 설명 |
+| 함수 | 설명 |
 |---|---|
-| `enqueue(record)` | pending 상태로 append |
-| `get_pending()` | pending 항목 목록 반환 |
-| `get_all_records(hour_prefix)` | done+pending 전체 반환 (시간대 필터 지원) |
-| `mark_done(ids)` / `mark_failed(ids)` | 상태 갱신 |
-| `retry_failed()` | failed → pending 으로 복원 |
+| `build_tray(on_open_gui, on_quit)` | 트레이 아이콘 생성. 메뉴: 설정 화면 열기 \| 종료 |
+| `set_tray_state(icon, baseline, is_turtle)` | 상태에 따른 아이콘 색상·툴팁 갱신 |
+| `notify(title, msg)` | OS 알림 발송 (`src/utils/notifier.py` 위임) |
 
 ---
 
@@ -311,11 +276,11 @@ JSONL 파일 기반 영속 큐. 각 항목 구조:
 | `mediapipe` | Pose 랜드마크 추출 |
 | `pystray` | 시스템 트레이 아이콘 |
 | `Pillow` | 트레이 아이콘 이미지 생성 + 카메라 피드 변환 |
-| `firebase-admin` | Firestore 업로드 |
-| `requests` | Firebase Auth REST API |
+| `customtkinter` | 현대적 UI 테마 |
 | `python-dotenv` | `.env` 파일에서 환경 변수 로드 |
 | `winotify` | Windows 토스트 알림 |
 | `plyer` | macOS 알림 |
+| `pyinstaller` | .exe 빌드 |
 
 **Python 버전:** 3.10 이상 (`float | None` 타입 힌트 사용)
 
@@ -338,31 +303,13 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-### 3. 환경 변수 설정 (필수)
+### 3. 실행
 
 ```bash
-cp .env.example .env
+python turtleCheck.py
 ```
 
-`.env` 파일을 열어 실제 Firebase Web API 키를 입력합니다:
-
-```
-FIREBASE_API_KEY=여기에_실제_키_입력
-```
-
-> Firebase 콘솔 → 프로젝트 설정 → 일반 탭 → 웹 API 키
-
-### 4. Firebase 서비스 계정 키 배치
-
-Firestore 업로드를 사용하려면 `firebase_key.json`을 프로젝트 루트에 배치합니다.
-
-> 없어도 앱은 실행됩니다 (업로드 기능만 비활성).
-
-### 5. 실행
-
-```bash
-python turtle_neck.py
-```
+> 로그인·API 키 설정 없이 바로 실행 가능합니다.
 
 ---
 
@@ -370,16 +317,13 @@ python turtle_neck.py
 
 ### 1단계: 시작 창
 
-앱 실행 시 시작 창이 열립니다.
-
-- **로그인 (선택)**: 이메일/비밀번호 입력 후 로그인 또는 회원가입
-- **비로그인으로 시작**: 로그인 없이 탐지 기능만 사용
+앱 실행 시 시작 창이 열립니다. 카메라 미리보기가 바로 표시됩니다.
 
 ### 2단계: 캘리브레이션
 
 1. **바른 자세로 웹캠 앞에 앉는다**
 2. 시작 창 또는 트레이 메뉴 → **캘리브레이션 시작** 클릭
-3. 완료 알림 후 트레이 아이콘이 초록색으로 전환
+3. 완료 후 "계속하기" 클릭 → 트레이 아이콘이 초록색으로 전환
 
 > 카메라 위치가 바뀌거나 자리를 옮기면 재캘리브레이션 권장.
 
@@ -387,24 +331,21 @@ python turtle_neck.py
 
 - 시작 창이 닫히면 트레이 모드로 전환, 창이 뜨지 않음
 - 트레이 아이콘 색상으로 실시간 자세 확인
-- 거북목 감지 시 Windows 알림 팝업 (10초 쿨다운)
+- 거북목 감지 시 OS 알림 팝업 (10초 쿨다운)
 
 ### 트레이 메뉴
 
-| 메뉴 | 비로그인 | 로그인 |
-|---|---|---|
-| 캘리브레이션 | ✅ | ✅ |
-| 통계 보기 | — | ✅ |
-| 로그인 | ✅ | — |
-| 로그아웃 | — | ✅ |
-| 종료 | ✅ | ✅ |
+| 메뉴 | 설명 |
+|---|---|
+| 설정 화면 열기 | 카메라 피드 + 재캘리브레이션 창 |
+| 종료 | 앱 종료 |
 
 ### 로그 직접 조회
 
 ```python
 import json
 
-with open("logs/anonymous/posture_log.jsonl", encoding="utf-8") as f:
+with open("logs/local/posture_log.jsonl", encoding="utf-8") as f:
     records = [json.loads(line) for line in f]
 
 print(f"총 {len(records)}건 기록")
@@ -414,9 +355,13 @@ print(f"총 {len(records)}건 기록")
 
 ## 빌드 및 배포
 
-> **현재 상태**: 빌드 스크립트(`build.bat`) 미작성 — exe 배포는 4단계 작업 진행 중.
-
 ### PyInstaller 빌드 명령
+
+```bash
+python -m pyinstaller TurtleNeckDetector.spec
+```
+
+또는 spec 없이 처음부터 생성할 경우:
 
 ```bat
 python -m pyinstaller ^
@@ -425,15 +370,11 @@ python -m pyinstaller ^
   --name TurtleNeckDetector ^
   --collect-all mediapipe ^
   --hidden-import pystray._win32 ^
-  --hidden-import firebase_admin ^
-  --hidden-import google.cloud.firestore ^
+  --hidden-import customtkinter ^
   --add-data "config.json;." ^
-  --add-data "firebase_key.json;." ^
   --add-data "assets;assets" ^
-  turtle_neck.py
+  turtleCheck.py
 ```
-
-> `.env` 파일은 빌드 결과물에 포함되지 않습니다. 배포 시 별도로 동봉하거나 환경 변수로 주입하세요.
 
 ### 배포 패키지 구성
 
@@ -441,8 +382,6 @@ python -m pyinstaller ^
 TurtleNeckDetector/
 ├── TurtleNeckDetector.exe
 ├── config.json
-├── firebase_key.json        ← 배포 시 별도 제공
-├── .env                     ← 배포 시 별도 제공
 └── logs/                    ← 런타임 자동 생성
 ```
 
@@ -454,43 +393,87 @@ TurtleNeckDetector/
 
 | 단계 | 상태 | 비고 |
 |---|---|---|
-| 1단계: 모드 분리·인증 | ✅ 완료 | AuthManager, Google OAuth, 세션 지속 |
-| 2단계: 데이터 연동 파이프라인 | ✅ 완료 | uid 경로 분리, UploadQueue, Firestore 업로드 |
-| 3단계: 통계 조회 | ✅ 완료 | `src/stats.py` 구현 — 로컬 오늘/7일 + Firestore 클라우드 통계 병합 |
-| 4단계: exe 배포 | 🔶 진행 중 | `build.bat` 작성 완료, 신규 환경 실행 검증 필요 |
-| 5단계: 운영 안정화 | ✅ 완료 | logging 모듈 도입 (log_config.py), app.log 자동 기록 |
-| z축 자세 판정 | ✅ 완료 | `_Z_WEIGHT` + `_Z_GATE_Y` 로 고개 숙임 오탐 감소 |
-| 스레드 안전성 | ✅ 완료 | `PostureDetector._lock` 도입, 복수 스레드 동시 접근 안전 |
-| 리팩토링 | ✅ 완료 | AppState 캡슐화, 시크릿 .env 분리, 상수 추출, UI 공통 위젯 추출, 버그 수정 |
+| 핵심 감지 엔진 | ✅ 완료 | MediaPipe Pose + 히스테리시스 판정, z축 오탐 감소 |
+| 로컬 로깅 | ✅ 완료 | `PostureLogger` — JSON Lines 분 단위 저장 |
+| 트레이/알림 UI | ✅ 완료 | pystray 아이콘 + OS 알림 (Windows/macOS) |
+| 로그인·클라우드 연동 | ❌ 제거됨 | Firebase → Supabase 이전을 시도했으나, 스토어 배포 목표에 맞춰 핵심 기능 우선으로 판단해 전면 제거 (배경: [다음 과제](#다음-과제)) |
+| exe 배포 | 🔶 진행 중 | 빌드 스펙 정리 완료, 신규 환경 실행 검증 필요 |
+| 운영 안정화 | ✅ 완료 | logging 모듈 도입 (log_config.py), app.log 자동 기록 |
 
-### 리팩토링에서 해결된 항목
+---
 
-| 항목 | 해결 방법 |
+## v2.0 고도화 로드맵
+
+### 핵심 전환: 규칙 기반 → CNN 전이학습
+
+기존 `_calc_score()` 규칙 기반 판정을 EfficientNet-B0 파인튜닝 모델로 전면 교체합니다.
+`src/detector.py`만 교체하고, 기존 `camera_loop`, 트레이 구조는 최대한 유지합니다.
+
+### v2.0 기술 아키텍처
+
+```
+웹캠 프레임
+  ↓
+[전처리] MediaPipe Pose
+  - 어깨/목/머리 랜드마크로 상체 ROI 영역 크롭
+  - 판단 역할 없음, 순수 전처리 도구
+  ↓
+[AI 판단] EfficientNet-B0 파인튜닝 모델
+  - 입력: 크롭된 상체 이미지 (픽셀 데이터)
+  - 출력: 정상 / 경증 거북목 / 중증 거북목 (3-class 분류)
+  - Google Colab에서 자체 수집 데이터셋으로 학습
+  ↓
+[지능형 피드백] LLM API (Claude / GPT-4o)
+  - 입력: 심각도 + 지속시간 + 사용자 세션 패턴
+  - 출력: 맞춤형 스트레칭 추천, 자세 교정 피드백 (자연어)
+```
+
+### 데이터셋 전략
+
+- **직접 수집**: 웹캠으로 정상/경증/중증 자세 촬영 및 라벨링
+- **저장 구조**: `dataset/normal/`, `dataset/mild/`, `dataset/severe/`
+- **수집 도구**: `collect_data.py` (신규 개발)
+
+### v2.0 기술 스택 추가
+
+| 항목 | 내용 |
 |---|---|
-| 전역 변수 11개 산재 | `AppState` 클래스로 캡슐화 |
-| Firebase API 키 config.json 노출 | `.env` + `python-dotenv`로 분리 |
-| `print()` 남발 | `logging` 모듈로 전환 (`log_config.py`) |
-| 매직 넘버 산재 | `NOTIFY_COOLDOWN`, `POLL_INTERVAL_MS`, `_WINDOW_MAXLEN` 등 상수화 |
-| `camera_loop()` 리소스 누수 | `try/finally`로 `detector.close()`, `cap.release()` 보장 |
-| `firebase_uploader.py` datetime 버그 | `datetime.now()` → `datetime.datetime.now()` 수정 |
-| Linux 알림 미처리 | `notifier.py`에 fallback 경고 로그 추가 |
-| 타입 힌트 누락 | 전체 모듈 함수 시그니처 통일 |
-| `StartupWindow._on_logout` 중복 정의 | 중복 메서드 제거 |
-| `AuthWindow._close` 존재하지 않는 변수 참조 | 죽은 변수 할당 제거 |
-| `StartupWindow`·`SettingsWindow` 인증 UI 중복 | `_build_auth_section` / `_refresh_auth_ui` 공통 헬퍼로 추출 |
+| 모델 | EfficientNet-B0 (PyTorch + torchvision) |
+| 학습 환경 | Google Colab (GPU) |
+| 추론 환경 | 노트북 CPU — 30fps 유지 목표 |
+| LLM 연동 | Claude API / GPT-4o |
+
+### 5개월 추진 일정
+
+| 월차 | 주요 작업 |
+|---|---|
+| 1개월차 | 데이터 수집 모듈(`collect_data.py`) 개발 + 데이터셋 구축 + 라벨링 |
+| 2개월차 | EfficientNet-B0 파인튜닝 + 정확도 검증 + `detector.py` 규칙 기반 교체 |
+| 3개월차 | LLM API 연동 + 스트레칭 추천 엔진 + 코칭 UI 구현 |
+| 4개월차 | 주간 리포트 + 사용자 테스트 + 성능 최적화 |
+| 5개월차 | 최종 패키징 + 발표 자료 + 베타 배포 |
 
 ---
 
 ## 다음 과제
 
-### 우선순위 높음
+### 로그인/계정 기능 — 의도적으로 보류
 
-- **4단계 완성**: 실제 신규 PC에서 exe 실행 검증 (로그인·캘리브레이션·알림 전체)
+Supabase Auth + Google OAuth까지 구현했으나, 최종 목표가 **Steam / MS Store / Google Play 배포**로 정해지면서 제거했습니다.
 
-### 추후 검토
+- 로그인 없는 로컬 전용 유틸리티로도 스토어 출시가 충분히 가능
+- 계정 기능은 복잡도(OAuth 콜백, 세션 갱신, 클라우드 동기화) 대비 지금 단계의 핵심 가치(감지 정확도) 증명에 기여하지 않음
+- Google Play는 계정 기능을 넣는 순간 **계정 삭제 기능**과 **개인정보처리방침**을 요구하므로, 필요성이 명확해지기 전까지는 미루는 것이 유리
+- 추후 필요해지면(기기 간 동기화, 구독 등) 커스텀 URI 스킴 등 더 간결한 방식으로 재도입 검토
+
+### v1.0 마무리
+
+- 실제 신규 PC에서 exe 실행 검증 (캘리브레이션·알림 전체)
+
+### v1.0 추후 검토
 
 - 자동 업데이트 (GitHub Releases 연동)
-- 주간/월간 통계 대시보드
+- 주간/월간 통계 대시보드 (로컬 데이터 기반)
 - Windows 시작 프로그램 자동 등록
 
 ---
