@@ -57,11 +57,16 @@ import하여 재사용한다.
 | 컬럼 | 설명 |
 |---|---|
 | `session_id` | 기록 세션 식별자 |
-| `y_score_dev` | y_score − baseline |
-| `z_forward_dev` | z_forward − baseline |
-| `head_tilt_dev` | head_tilt − baseline |
-| `ear_z_offset_dev` | ear_z_offset − baseline |
+| `y_score`, `z_forward`, `head_tilt`, `ear_z_offset` | 원시 피처 값 (baseline 차감 전) |
+| `baseline_y_score`, `baseline_z_forward`, `baseline_head_tilt`, `baseline_ear_z_offset` | 캘리브레이션 시점의 baseline 피처 (세션 내 모든 행에 동일하게 기록) |
 | `label` | 0=정상, 1=거북목 (사람이 직접 지정) |
+
+> **왜 편차를 미리 빼지 않고 원시값+baseline을 그대로 저장하는가**: `src/detector.py`의
+> `_combine()`은 `z_forward` 항에 `y_score`의 절댓값 기반 게이트(`z_gate`)가 곱해지는 비선형
+> 함수다. 편차를 미리 계산해서 저장하면 이 게이트가 "절대 y_score" 대신 "y_score 편차"로
+> 계산되어 배포 로직과 다른 값이 나온다. 원시값과 baseline을 그대로 저장해두면, 검증
+> 스크립트에서 `_combine(raw) - _combine(baseline)`으로 프로덕션과 완전히 동일한 공식을
+> 재현할 수 있다.
 
 **데이터 수집 가이드라인** (스크립트 실행 시 안내 문구로도 표시):
 - 클래스(정상/거북목)당 2~3분짜리 세션을 5개 정도로 나눠 진행 (클래스당 총 10~15분).
@@ -77,7 +82,8 @@ import하여 재사용한다.
 1. `dataset/posture_labels.csv`를 로드한다.
 2. `session_id` 기준으로 세션 단위 train(약 80%)/test(약 20%) 분리를 한다. **행 단위 무작위 분리는
    금지** — 같은 세션의 행들은 서로 거의 동일해 데이터 누수(leakage)가 발생하고 정확도가 부풀려진다.
-3. `sklearn.linear_model.LogisticRegression`을 4개 피처(`*_dev`)로 train 세션에 대해 학습한다.
+3. 각 행의 원시 피처에서 baseline을 뺀 편차(4개)를 계산하고, `sklearn.linear_model.LogisticRegression`을
+   train 세션에 대해 학습한다.
 4. **학습 모델 평가**: test 세션에서 accuracy/precision/recall/confusion matrix를 계산한다.
 5. **규칙 기반 평가**: `src/detector.py`에서 `_combine()`과 `delta_turtle`(`config.json` 값)을
    import하여, 동일한 test 세션 데이터에 그대로 적용한 예측을 만들고 동일한 지표를 계산한다.
