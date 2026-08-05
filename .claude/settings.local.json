@@ -14,7 +14,9 @@
       "Bash(findstr -i tkinter)",
       "Bash(\"C:\\\\Users\\\\taeok\\\\anaconda3\\\\python.exe\" -m pip list)",
       "Bash(findstr /i \"custom tkinter mediapipe pystray\")",
-      "Bash(Select-String \"custom|mediapipe|pystray\")"
+      "Bash(Select-String \"custom|mediapipe|pystray\")",
+      "Bash(bash ~/.claude/statusline.sh)"
     ]
-  }
+  },
+  "outputStyle": "Learning"
 }

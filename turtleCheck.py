@@ -16,25 +16,24 @@ import time
 import tkinter as tk
 
 import cv2
-from dotenv import load_dotenv
 from PIL import Image
 
-from src.detector   import PostureDetector
-from src.log_config import setup_logging
+from src.ai_advisor  import load_weights, predict_turtle
+from src.detector    import PostureDetector
+from src.log_config  import setup_logging
 from src.logger      import PostureLogger
 from src.tray_app    import build_tray, set_tray_state, notify
 
 # ── 경로 설정 (개발/exe 공통) ─────────────────────────────────────────────────
 
 if getattr(sys, "frozen", False):
-    _BASE = sys._MEIPASS   # 번들 리소스 (.env, config, assets 모두 포함)
+    _BASE = sys._MEIPASS   # 번들 리소스 (config, assets 포함)
 else:
     _BASE = os.path.dirname(os.path.abspath(__file__))
 
-_CONFIG_PATH = os.path.join(_BASE, "config.json")
-_MASCOT_PATH = os.path.join(_BASE, "assets", "mascot.png")
-
-load_dotenv(os.path.join(_BASE, ".env"))
+_CONFIG_PATH        = os.path.join(_BASE, "config.json")
+_MASCOT_PATH        = os.path.join(_BASE, "assets", "mascot.png")
+_MODEL_WEIGHTS_PATH = os.path.join(_BASE, "dataset", "model_weights.json")
 
 with open(_CONFIG_PATH, encoding="utf-8") as f:
     cfg = json.load(f)
@@ -43,6 +42,9 @@ SAVE_INTERVAL    = cfg["save_interval_seconds"]
 APP_DATA_DIR     = os.path.join(_BASE, "logs")
 NOTIFY_COOLDOWN  = 10.0   # 거북목 알림 재발송 최소 간격 (초)
 POLL_INTERVAL_MS = 200    # tkinter 이벤트 큐 폴링 간격 (ms)
+
+# AI 보조 지표 — 가중치 파일이 없으면(아직 학습 전) 조용히 비활성화된 채로 동작한다.
+load_weights(_MODEL_WEIGHTS_PATH)
 
 os.makedirs(APP_DATA_DIR, exist_ok=True)
 setup_logging(APP_DATA_DIR)
@@ -95,6 +97,14 @@ def _make_callbacks(app: AppState) -> dict:
 
 # ── 카메라 루프 (백그라운드 스레드) ────────────────────────────────────────────
 
+def _notify_message(ai_is_turtle: "bool | None") -> str:
+    """거북목 알림 본문. AI 보조 판단(src/ai_advisor.py)이 있으면 일치 여부를 덧붙인다."""
+    base = "자세를 바로잡아 주세요."
+    if ai_is_turtle is None:
+        return base
+    return f"{base} (AI 모델도 동의: {'일치' if ai_is_turtle else '불일치'})"
+
+
 def camera_loop(app: AppState) -> None:
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -102,6 +112,7 @@ def camera_loop(app: AppState) -> None:
         return
 
     last_notify_time = 0.0
+    last_ai_is_turtle: "bool | None" = None
     try:
         while not app.stop_event.is_set():
             ok, frame = cap.read()
@@ -121,6 +132,12 @@ def camera_loop(app: AppState) -> None:
 
             did_evaluate, changed = app.detector.update(features)
 
+            if (did_evaluate and app.detector.last_avg_features is not None
+                    and app.detector.baseline_features is not None):
+                last_ai_is_turtle = predict_turtle(
+                    app.detector.last_avg_features, app.detector.baseline_features
+                )
+
             if did_evaluate and app.detector.baseline_score is not None:
                 app.logger.tick(app.detector.is_turtle)
                 if changed:
@@ -128,6 +145,7 @@ def camera_loop(app: AppState) -> None:
                         app.tray_icon,
                         app.detector.baseline_score,
                         app.detector.is_turtle,
+                        last_ai_is_turtle,
                     )
                     if not app.detector.is_turtle:
                         last_notify_time = 0.0
@@ -135,7 +153,13 @@ def camera_loop(app: AppState) -> None:
             if (app.detector.baseline_score is not None
                     and app.detector.is_turtle
                     and time.time() - last_notify_time >= NOTIFY_COOLDOWN):
-                notify("거북목 감지!", "자세를 바로잡아 주세요.")
+                # notify()는 내부적으로 powershell.exe 프로세스를 새로 띄우는 방식이라
+                # 카메라 루프 스레드에서 직접 부르면 프레임 처리가 순간 끊길 수 있다.
+                threading.Thread(
+                    target=notify,
+                    args=("거북목 감지!", _notify_message(last_ai_is_turtle)),
+                    daemon=True,
+                ).start()
                 last_notify_time = time.time()
 
             now = time.time()

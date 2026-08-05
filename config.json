@@ -1,5 +1,5 @@
 {
-  "delta_turtle": 0.10,
-  "delta_ok": 0.05,
+  "delta_turtle": 0.13,
+  "delta_ok": 0.07,
   "save_interval_seconds": 60
 }

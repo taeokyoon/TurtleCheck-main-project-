@@ -12,9 +12,6 @@ Pillow>=10.0.0
 # ── 현대적 UI 테마 ──
 customtkinter>=5.2.0
 
-# ── 환경 변수 로드 (.env 파일 지원) ──
-python-dotenv>=1.0.0
-
 # ── OS별 알림 라이브러리 분기 처리 ──
 winotify; sys_platform == 'win32'
 plyer>=2.1.0; sys_platform == 'darwin'

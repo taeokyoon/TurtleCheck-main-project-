@@ -99,9 +99,32 @@ def _build_baseline_card(parent) -> tuple:
     return card, val_lbl, bar
 
 
+# ── 공유: 캘리브레이션 버튼 클릭 → 완료 처리 ──────────────────────────────────────
+
+class _CalibrationMixin:
+    """캘리브레이션 버튼 클릭 시 즉시 baseline 을 설정하고 완료 상태를 표시한다.
+    사용하는 클래스는 self.detector, self._status_msg, self._baseline_bar,
+    self._baseline_val, self._badge_dot, self._badge_lbl 를 가지고 있어야 한다."""
+
+    def _on_calibrate(self):
+        baseline = self.detector.calibrate()
+        if baseline is None:
+            self._status_msg.set("자세가 감지되지 않았습니다. 잠시 후 다시 시도하세요.")
+            return
+        self._baseline_val.configure(text=f"{baseline:.3f}", text_color=_ACCENT)
+        self._baseline_bar.set(min(abs(baseline) / 0.8, 1.0))
+        self._badge_dot.configure(fg_color=_ACCENT)
+        self._badge_lbl.configure(text="ACTIVE", text_color=_ACCENT)
+        self._on_calibration_done(baseline)
+
+    def _on_calibration_done(self, baseline: float) -> None:
+        """완료 메시지 표시. 창마다 다른 문구/버튼 처리가 필요하면 오버라이드."""
+        self._status_msg.set(f"완료 — 기준값 {baseline:.3f}")
+
+
 # ── StartupWindow ─────────────────────────────────────────────────────────────
 
-class StartupWindow:
+class StartupWindow(_CalibrationMixin):
     """앱 시작 시 표시되는 창. 좌: 카메라 피드, 우: 캘리브레이션."""
 
     _FRAME_W = 520
@@ -153,17 +176,9 @@ class StartupWindow:
         if not self._stop_cam.is_set() and self._root.winfo_exists():
             self._poll_id = self._root.after(self._POLL_MS, self._poll_frame)
 
-    # ── 캘리브레이션 ──────────────────────────────────────────────────────────
+    # ── 캘리브레이션 완료 처리 (공통 흐름은 _CalibrationMixin) ──────────────────────
 
-    def _on_calibrate(self):
-        baseline = self.detector.calibrate()
-        if baseline is None:
-            self._status_msg.set("자세가 감지되지 않았습니다. 잠시 후 다시 시도하세요.")
-            return
-        self._baseline_val.configure(text=f"{baseline:.3f}", text_color=_ACCENT)
-        self._baseline_bar.set(min(abs(baseline) / 0.8, 1.0))
-        self._badge_dot.configure(fg_color=_ACCENT)
-        self._badge_lbl.configure(text="ACTIVE", text_color=_ACCENT)
+    def _on_calibration_done(self, baseline: float) -> None:
         self._status_msg.set(f"완료 — 기준값 {baseline:.3f}  만족하면 아래 버튼을 눌러주세요.")
         self._continue_btn.configure(text="시작하기")
 
@@ -332,7 +347,7 @@ class StartupWindow:
 
 # ── SettingsWindow ────────────────────────────────────────────────────────────
 
-class SettingsWindow:
+class SettingsWindow(_CalibrationMixin):
     """트레이 "설정 화면 열기" 클릭 시 표시되는 창."""
 
     _FRAME_W = 520
@@ -391,20 +406,7 @@ class SettingsWindow:
             except Exception:
                 pass
 
-    # ── 캘리브레이션 ──────────────────────────────────────────────────────────
-
-    def _on_calibrate(self):
-        baseline = self.detector.calibrate()
-        if baseline is None:
-            self._status_msg.set("자세가 감지되지 않았습니다. 잠시 후 다시 시도하세요.")
-            return
-        self._baseline_val.configure(text=f"{baseline:.3f}", text_color=_ACCENT)
-        self._baseline_bar.set(min(abs(baseline) / 0.8, 1.0))
-        self._badge_dot.configure(fg_color=_ACCENT)
-        self._badge_lbl.configure(text="ACTIVE", text_color=_ACCENT)
-        self._status_msg.set(f"완료 — 기준값 {baseline:.3f}")
-
-    # ── 프레임 폴링 ───────────────────────────────────────────────────────────
+    # ── 프레임 폴링 (캘리브레이션 흐름은 _CalibrationMixin) ─────────────────────────
 
     def _poll_frame(self):
         try:

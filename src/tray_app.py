@@ -47,7 +47,22 @@ def build_tray(
 
 # ── 트레이 상태 갱신 ──────────────────────────────────────────────────────────
 
-def set_tray_state(icon: "pystray.Icon", baseline: float | None, is_turtle: bool):  # type: ignore[reportInvalidTypeForm]
+def _ai_suffix(is_turtle: bool, ai_is_turtle: "bool | None") -> str:
+    """AI 보조 모델(dataset/model_weights.json)이 규칙 기반 판정에 동의하는지 짧게 덧붙인다.
+    최종 판정에는 관여하지 않고, 툴팁에 참고용으로만 표시한다."""
+    if ai_is_turtle is None:
+        return ""
+    agree = "일치" if ai_is_turtle == is_turtle else "불일치"
+    ai_label = "거북목" if ai_is_turtle else "정상"
+    return f" (AI: {ai_label} · {agree})"
+
+
+def set_tray_state(
+    icon: "pystray.Icon",  # type: ignore[reportInvalidTypeForm]
+    baseline: float | None,
+    is_turtle: bool,
+    ai_is_turtle: "bool | None" = None,
+):
     """상태에 따른 아이콘 및 툴팁 업데이트."""
     if icon is None:
         return
@@ -57,7 +72,7 @@ def set_tray_state(icon: "pystray.Icon", baseline: float | None, is_turtle: bool
         icon.title = f"{APP_ID} — 캘리브레이션 필요"
     elif is_turtle:
         icon.icon  = ICON_RED
-        icon.title = "거북목 감지됨!"
+        icon.title = "거북목 감지됨!" + _ai_suffix(is_turtle, ai_is_turtle)
     else:
         icon.icon  = ICON_GREEN
-        icon.title = "자세 정상"
+        icon.title = "자세 정상" + _ai_suffix(is_turtle, ai_is_turtle)

@@ -30,3 +30,8 @@ client_secret.json
 
 # claude
 .claude/
+
+# ML / test
+tools/
+dataset/
+docs/

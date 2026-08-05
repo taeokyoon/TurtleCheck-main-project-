@@ -1,12 +1,15 @@
 """
 detector.py — MediaPipe Pose 기반 자세 지표 계산 및 거북목 판정
 """
+import logging
 import threading
 import time
 from collections import deque, namedtuple
 
 import cv2
 import mediapipe as mp
+
+log = logging.getLogger(__name__)
 
 _WINDOW_MAXLEN    = 200   # 슬라이딩 윈도우 최대 샘플 수
 _MIN_VISIBILITY   = 0.5   # 랜드마크 신뢰도 하한
@@ -17,8 +20,8 @@ _Z_WEIGHT         = 0.3   # z축 보조 가중치
 _Z_GATE_Y         = 0.15  # 이 이상 y가 변하면 z 기여를 점진적으로 억제
 _EMA_ALPHA        = 0.3   # 프레임간 지수이동평균 계수 (작을수록 더 부드럽게, 반응은 느리게)
 
-# 프레임별 개별 자세 지표. 하나의 점수로 미리 합치지 않고 각각 보존해야
-# 추후 이상탐지 모델(OCSVM 등)이 지표 간 상관관계를 학습할 수 있다.
+# 프레임별 개별 자세 지표. head_tilt/ear_z_offset은 판정에는 아직 안 쓰이지만
+# 계속 계산·로깅해두면 추후 임계값 튜닝이나 디버깅에 참고할 수 있다.
 PostureFeatures = namedtuple("PostureFeatures", ["y_score", "z_forward", "head_tilt", "ear_z_offset"])
 
 
@@ -38,7 +41,8 @@ def _average(window) -> PostureFeatures:
 
 
 def _combine(f: PostureFeatures) -> float:
-    """규칙 기반 판정(v1)이 쓰는 단일 스칼라. 기존 로직과 동일하게 y_score/z_forward만 반영."""
+    """자세 지표를 판정용 단일 스칼라로 합친다. y_score가 기본이고, z_forward는
+    y가 baseline 근처(정상 범위)일 때만 보조적으로 더해진다."""
     z_gate = max(0.0, 1.0 - abs(f.y_score) / _Z_GATE_Y)
     return f.y_score + _Z_WEIGHT * f.z_forward * z_gate
 
@@ -55,6 +59,7 @@ class PostureDetector:
         self.feature_window: deque = deque(maxlen=_WINDOW_MAXLEN)  # (timestamp, PostureFeatures)
         self.baseline_score: float | None = None
         self.baseline_features: "PostureFeatures | None" = None
+        self.last_avg_features: "PostureFeatures | None" = None  # AI 보조 지표(src/ai_advisor.py)가 읽어감
         self.is_turtle: bool = False
         self._last_eval: float = time.time()
         self._ema_prev: "PostureFeatures | None" = None
@@ -160,19 +165,28 @@ class PostureDetector:
                 return False, False
 
             self._last_eval = now
-            avg   = _average(self.feature_window)
-            score = _combine(avg)
+            avg = _average(self.feature_window)
+            self.last_avg_features = avg
 
             if self.baseline_score is None:
                 return True, False
 
-            deviation = score - self.baseline_score
-            prev      = self.is_turtle
+            # baseline_score 와의 거리로 판정 (부호로 방향까지 판단).
+            # delta_turtle(진입) > delta_ok(복귀) 여야 경계가 겹치지 않아 플래핑이 없다.
+            deviation    = _combine(avg) - self.baseline_score
+            enter_turtle = deviation < -self.delta_turtle
+            exit_turtle  = deviation > -self.delta_ok
 
-            if not self.is_turtle and deviation < -self.delta_turtle:
+            prev = self.is_turtle
+            if not self.is_turtle and enter_turtle:
                 self.is_turtle = True
-            elif self.is_turtle and deviation > -self.delta_ok:
+            elif self.is_turtle and exit_turtle:
                 self.is_turtle = False
+
+            log.debug(
+                "avg=%s deviation=%.4f enter=%s exit=%s is_turtle=%s",
+                tuple(round(v, 3) for v in avg), deviation, enter_turtle, exit_turtle, self.is_turtle,
+            )
 
             return True, (self.is_turtle != prev)
 
