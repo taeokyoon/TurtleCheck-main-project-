@@ -18,7 +18,7 @@
 8. [빌드 및 배포](#빌드-및-배포)
 9. [개발 단계 현황](#개발-단계-현황)
 10. [규칙 기반 판정 검증](#규칙-기반-판정-검증)
-11. [다음 과제](#다음-과제)
+11. [로드맵 및 진행 현황](#로드맵-및-진행-현황)
 
 ---
 
@@ -35,7 +35,7 @@
 - **JSON Lines 로그** — 60초마다 `logs/local/posture_log.jsonl`에 자동 저장 (로컬 전용, 클라우드 업로드 없음)
 - **구조화 로깅** — `logs/app.log`에 회전 파일 로그 자동 기록
 
-> 로그인·클라우드 통계·계정 동기화는 현재 지원하지 않습니다. 핵심 감지 기능에 집중하기 위해 의도적으로 제외했습니다 (배경은 [다음 과제](#다음-과제) 참고).
+> 로그인·클라우드 통계·계정 동기화는 현재 지원하지 않습니다. 핵심 감지 기능에 집중하기 위해 의도적으로 제외했습니다 (배경은 [로드맵 및 진행 현황](#로드맵-및-진행-현황) 참고).
 
 ---
 
@@ -111,8 +111,8 @@ EMA 스무딩 (_ema, alpha=0.3) — 프레임간 흔들림 완화
 update() — 1초마다 판정
     │  score     = _combine(avg_features)   ※ 현재는 y_score/z_forward만 반영 (v1 규칙 기반 유지)
     │  deviation = score - baseline_score
-    │  deviation < -0.10  →  is_turtle = True   (거북목 진입)
-    │  deviation > -0.05  →  is_turtle = False  (정상 복귀)
+    │  deviation < -0.13  →  is_turtle = True   (거북목 진입)   ※ config.json delta_turtle
+    │  deviation > -0.07  →  is_turtle = False  (정상 복귀)   ※ config.json delta_ok
     ▼
 ┌─────────────────┬──────────────────┬────────────────────┐
 트레이 아이콘 갱신  Windows 알림        PostureLogger.tick()
@@ -216,11 +216,12 @@ TurtleNeckDetector/
 
 `PostureFeatures = namedtuple(..., ["y_score", "z_forward", "head_tilt", "ear_z_offset"])` — 자세 지표를 하나의 점수로 합치지 않고 벡터로 보존. 판정은 `_combine()`에서 `y_score`/`z_forward`만 사용하며, `head_tilt`/`ear_z_offset`은 계속 계산·로깅만 해서 추후 임계값 튜닝이나 디버깅 참고용으로 남겨둔다.
 
-히스테리시스는 `baseline_score`와의 거리(`deviation`)로 판정한다: `deviation < -delta_turtle`이면 거북목 진입, `deviation > -delta_ok`이면 정상 복귀. `delta_turtle(0.10) > delta_ok(0.05)`로 진입 임계값이 복귀보다 더 크게(멀게) 설정돼 있어 두 조건의 경계가 겹치지 않고, 상태가 매 틱 뒤집히는 플래핑이 구조적으로 발생하지 않는다.
+히스테리시스는 `baseline_score`와의 거리(`deviation`)로 판정한다: `deviation < -delta_turtle`이면 거북목 진입, `deviation > -delta_ok`이면 정상 복귀. `delta_turtle(0.13) > delta_ok(0.07)` (`config.json`)로 진입 임계값이 복귀보다 더 크게(멀게) 설정돼 있어 두 조건의 경계가 겹치지 않고, 상태가 매 틱 뒤집히는 플래핑이 구조적으로 발생하지 않는다.
 
 | 메서드 | 반환 | 설명 |
 |---|---|---|
 | `process_frame(frame)` | `PostureFeatures \| None` | BGR 프레임 → 자세 피처 벡터 |
+| `process_frame_with_landmarks(frame)` | `(features, landmarks)` | 피처 + MediaPipe 원시 랜드마크 33개. 수집 도구 전용, 판정엔 미사용 |
 | `process_frame_visual(frame)` | `(features, rgb)` | 피처 벡터 + 랜드마크 오버레이 이미지 |
 | `update(features)` | `(did_evaluate, state_changed)` | EMA 스무딩 → 윈도우 갱신 → 1초마다 히스테리시스 판정 |
 | `calibrate()` | `float \| None` | 윈도우 평균을 baseline으로 즉시 설정 (카운트다운 없이 클릭 즉시 완료) |
@@ -395,11 +396,12 @@ TurtleNeckDetector/
 | 핵심 감지 엔진 | ✅ 완료 | MediaPipe Pose + 히스테리시스 판정, z축 오탐 감소 |
 | 로컬 로깅 | ✅ 완료 | `PostureLogger` — JSON Lines 분 단위 저장 |
 | 트레이/알림 UI | ✅ 완료 | pystray 아이콘 + OS 알림 (Windows/macOS) |
-| 로그인·클라우드 연동 | ❌ 제거됨 | Firebase → Supabase 이전을 시도했으나, 스토어 배포 목표에 맞춰 핵심 기능 우선으로 판단해 전면 제거 (배경: [다음 과제](#다음-과제)) |
+| 로그인·클라우드 연동 | ❌ 제거됨 | Firebase → Supabase 이전을 시도했으나, 스토어 배포 목표에 맞춰 핵심 기능 우선으로 판단해 전면 제거 (배경: [로드맵 및 진행 현황](#로드맵-및-진행-현황)) |
 | exe 배포 | 🔶 진행 중 | 빌드 스펙 정리 완료, 신규 환경 실행 검증 필요 |
 | 운영 안정화 | ✅ 완료 | logging 모듈 도입 (log_config.py), app.log 자동 기록 |
 | 규칙 기반 판정 데이터 검증 | ✅ 완료 | 라벨링 데이터셋(662행) 수집 + 로지스틱 회귀 학습·검증 (`tools/`) |
 | 앱 내 AI 보조 지표 | ✅ 완료 | `src/ai_advisor.py` — 트레이 툴팁·알림에 AI 참고 의견 표시 |
+| 랜드마크 기반 PyTorch 모델 | ✅ 완료 | `tools/train_torch.py` — MLP·GRU vs 규칙 기반 3자 비교, ONNX 내보내기 (앱 통합은 Phase 3) |
 
 ---
 
@@ -418,7 +420,7 @@ TurtleNeckDetector/
 
 | 파일 | 역할 |
 |---|---|
-| `tools/collect_labels.py` | 웹캠 + 키보드 토글로 라벨링 데이터 수집 (개발 전용) |
+| `tools/collect_labels.py` | 웹캠 + 키보드로 라벨링 데이터 수집 v2 → `dataset/posture_v2.csv` (개발 전용, 아래 "데이터셋 v2" 참고) |
 | `tools/train_model.py` | 세션 단위 train/test 분리 → 로지스틱 회귀 학습 → 규칙 기반 판정과 비교 리포트 생성 |
 
 `turtleCheck.py`, `src/detector.py` 등 배포 코드는 이 작업으로 전혀 수정되지 않았다. 학습된
@@ -478,6 +480,30 @@ TurtleNeckDetector/
 기본값 50%로 되돌렸고, 그 결과 실제 사용 중 "불일치"가 다시 자주 뜬다 — 이는 AI가 규칙보다
 더 큰 편차가 있어야 확신하는, 정직하고 독립적인 참고 의견이다.
 
+### 데이터셋 v2 — 학습용 원시 랜드마크 수집
+
+v1 데이터(`posture_labels.csv`, 662행)는 1명·1일·5세션이고 세션마다 라벨이 하나뿐이라
+일반화 성능을 검증할 수 없었다. v2 수집 도구는 이를 보완한다 (v1 파일과 리포트는 그대로 보존):
+
+```bash
+python tools/collect_labels.py --person <이름> [--camera 0]
+# n=정상  t=거북목  p=일시정지(기록 안 함)  q=종료
+```
+
+| 항목 | v1 | v2 |
+|---|---|---|
+| 파일 | `dataset/posture_labels.csv` | `dataset/posture_v2.csv` |
+| 세션 | 토글마다 새 세션 (세션 = 단일 라벨) | 1실행 = 1세션, 안에서 라벨 전환 (정상↔거북목 전환 구간 포함) |
+| 기록 주기 | 1Hz | 5Hz (`_RECORD_INTERVAL = 0.2`) |
+| 컬럼 | 피처 4 + baseline 4 + label | + `person_id`, `timestamp`(유닉스 초), 상체 랜드마크 13개 × (x,y,z,v) = 64컬럼 |
+
+랜드마크는 MediaPipe Pose 0~12번(코·눈·귀·입·어깨)만 저장한다 — 책상 앞에서 하체는 거의
+보이지 않는다. 기존 피처 4개도 같이 남겨서, 같은 v2 데이터로 규칙 기반 판정과 학습 모델을
+공정하게 비교할 수 있다. 피처는 EMA 스무딩 전 원시값이다(스무딩은 `update()` 안에서 일어남).
+
+**수집 가이드**: 사람마다 `--person`을 다르게 주고 3명 이상 모은다. 한 세션 안에서
+정상→거북목→정상을 여러 번 오가되, 자세를 바꾸는 순간엔 `p`로 잠깐 멈춰 라벨 노이즈를 막는다.
+
 ### 데이터 품질 — 라벨 노이즈
 
 662행 중 6행(약 0.9%)은 "거북목(1)"으로 기록됐지만 baseline 대비 편차가 거의 0(정상처럼
@@ -489,26 +515,133 @@ TurtleNeckDetector/
 
 ---
 
-## 다음 과제
+### 랜드마크 기반 PyTorch 모델 (Phase 2)
 
-### 로그인/계정 기능 — 의도적으로 보류
+8월 검증에서 로지스틱 회귀가 규칙 기반보다 못했던 건 "AI가 못해서"가 아니라, 사람이 설계한
+피처 4개를 선형 결합만 할 수 있어 규칙의 비선형 게이트(`z_gate`)를 재현하지 못했기 때문이었다.
+Phase 2는 피처 설계를 사람이 하지 않고 **원시 랜드마크(상체 13개)에서 모델이 스스로 특징을
+배우게** 한다. 설계: [docs/superpowers/specs/2026-09-22-torch-model-design.md](docs/superpowers/specs/2026-09-22-torch-model-design.md)
 
-Supabase Auth + Google OAuth까지 구현했으나, 최종 목표가 **Steam / MS Store / Google Play 배포**로 정해지면서 제거했습니다.
+```bash
+pip install -r tools/requirements.txt      # torch(CPU)·onnx·onnxruntime·matplotlib
+python tools/train_torch.py                # 약 20초, CPU 로 충분 (1천 행대 × 파라미터 수천 개)
+```
 
-- 로그인 없는 로컬 전용 유틸리티로도 스토어 출시가 충분히 가능
-- 계정 기능은 복잡도(OAuth 콜백, 세션 갱신, 클라우드 동기화) 대비 지금 단계의 핵심 가치(감지 정확도) 증명에 기여하지 않음
-- Google Play는 계정 기능을 넣는 순간 **계정 삭제 기능**과 **개인정보처리방침**을 요구하므로, 필요성이 명확해지기 전까지는 미루는 것이 유리
-- 추후 필요해지면(기기 간 동기화, 구독 등) 커스텀 URI 스킴 등 더 간결한 방식으로 재도입 검토
+| 항목 | 내용 |
+|---|---|
+| 입력 | 랜드마크 13개를 어깨 중심 원점·어깨 너비 1 로 정규화 → (x,y,z) 39 + visibility 13 = 52차원. **캘리브레이션 불필요** |
+| MLP | 단일 프레임 52 → 32 → 16 → 1 (≈2.2K 파라미터) |
+| GRU | 최근 10스텝(2초) 시퀀스 → GRU(32) → 16 → 1 (≈9K 파라미터) |
+| 학습 | BCE, Adam 1e-3, early stopping(patience 10), seed 42 |
+| 검증 | 세션 단위 Leave-One-Out. 표준화는 train 폴드 기준 |
+| 출력 | `dataset/torch_report.md`, `torch_report/*.png`, `mlp_model.onnx`(9.7KB), `gru_model.onnx`(37KB), `feature_norm.json` |
+| 보고서용 그래프 | `python tools/plot_report_figures.py` → `dataset/report_figures/fig_comparison.png`, `fig_confusion.png` (한글·% 라벨, 재학습 없이 리포트 숫자만 읽음). 손실 그래프(`*_loss.png`)는 학습 진단용이라 보고서엔 쓰지 않는다 — fold1 MLP val 과적합, GRU fold0 val 누수가 그대로 보임 |
 
-### v1.0 마무리
+**결과** (`dataset/torch_report.md`, 세션 2개 LOSO 평균, 1,156행):
 
-- 실제 신규 PC에서 exe 실행 검증 (캘리브레이션·알림 전체)
+| | Accuracy | Precision | Recall | F1 |
+|---|---|---|---|---|
+| **MLP (프레임)** | **0.953** | 0.928 | 0.976 | **0.949** |
+| GRU (윈도우) | 0.849 | 0.795 | 1.000 | 0.871 |
+| 규칙 기반 | 0.916 | 0.988 | 0.816 | 0.894 |
 
-### v1.0 추후 검토
+**해석**:
+- **MLP가 규칙 기반을 앞섰다** (95.3% vs 91.6%). 규칙 기반은 거북목 505건 중 93건을 놓쳤고(Recall
+  0.816), MLP는 12건만 놓쳤다. 원시 랜드마크 + 비선형 모델이면 사람이 설계한 피처·임계값보다 나을
+  수 있다는 Phase 2 가설이 확인됐다. 알림 앱에선 "놓침"이 "오탐"보다 치명적이라 MLP 성향이 제품에 맞다.
+- **규칙 기반이 8월(98.8%)보다 낮은 이유**: v2 데이터엔 정상↔거북목 **전환 구간**이 들어 있다.
+  규칙은 편차가 -0.13을 넘어야 거북목으로 보므로 "살짝 숙인" 초반 구간을 전부 놓친다. v1 데이터엔
+  전환 구간이 없어서 점수가 높았다.
+- **GRU는 폴드에 따라 69.8% / 100%로 불안정**. 원인은 데이터 수다 — 학습 세션이 1개뿐이면
+  early stopping 용 val 이 같은 세션의 뒤 20%로 잡혀 사실상 답을 보고 검증하는 셈이 되고(폴드0:
+  100 epoch 내내 val_loss 감소, train_loss 0.000), 과적합을 못 막는다. 세션이 3개 이상이면 val 이
+  별도 세션이 되어 해소된다. **세션 5개 이상 모은 뒤 재실행이 필요하다.**
+- **한계**: 1명·2세션. 각 폴드가 세션 하나로만 학습하므로 위 숫자는 "파이프라인이 작동하고 방향이
+  맞다"는 증거이지 최종 성능이 아니다. 다인 데이터가 들어오면 `leave_one_group_out(person_id)`로
+  사람 단위 검증으로 바꾸면 된다.
 
-- 자동 업데이트 (GitHub Releases 연동)
-- 주간/월간 통계 대시보드 (로컬 데이터 기반)
-- Windows 시작 프로그램 자동 등록
+**앱 통합 시 주의**: 앱은 `feature_norm.json`의 mean/std 로 **똑같이** 표준화한 뒤 ONNX 에 넣어야
+한다. 이걸 빠뜨리면 학습 땐 잘 되고 앱에선 엉망이 된다. `onnxruntime`만 추가하면 되고 torch 는
+배포하지 않는다 (Phase 3).
+
+**문제 기록 — protobuf 충돌 (2026-09-22)**:
+- 증상: `tools/requirements.txt`에 `onnx>=1.15.0`을 추가해 설치한 뒤 `test_detector.py`가
+  `AttributeError: 'FieldDescriptor' object has no attribute 'label'`로 실패하고, 배포 앱도 같은
+  이유로 실행 불가.
+- 원인: onnx 최신(1.23)이 `protobuf 7.36`을 끌어와, mediapipe 0.10.9가 요구하는 `protobuf<4`가
+  깨짐. 배포 `requirements.txt`엔 핀이 있었지만 tools 쪽엔 없었다.
+- 해결: `tools/requirements.txt`에 `onnx>=1.15.0,<1.17` + `protobuf<4` 명시 → protobuf 3.20.3 /
+  onnx 1.16.2 로 복구, 테스트 24개 전부 통과. onnxruntime 1.30은 메타데이터상 protobuf 4를 요구한다고
+  경고하지만 C++ 내부에 자체 protobuf 를 포함해 파이썬 protobuf 버전과 무관하게 추론이 동작한다
+  (ONNX 동일성 검증 1e-9 로 확인).
+- 교훈: 상한 없는 `>=` 핀은 시간이 지나면 다른 패키지를 깨뜨릴 수 있다. mediapipe 0.10.9 를 쓰는 한
+  protobuf 를 건드리는 패키지는 상한을 같이 잡는다.
+
+---
+
+## 로드맵 및 진행 현황
+
+> 마지막 갱신: 2026-09-22. 비중은 예상 작업량 기준.
+
+| Phase | 내용 | 비중 | 상태 |
+|---|---|---|---|
+| 0 | 문서 정합성 (임계값 0.13/0.07) + 검증 강화 (LOSO) | 5% | ✅ 완료 (Phase 1·2에 흡수) |
+| 1 | 라벨링 데이터 수집 도구 v2 (`tools/collect_labels.py`) | 20% | ✅ 완료 — 단, 확보 데이터는 1명·2세션(1,156행)으로 목표(3명·5세션+)의 20~30% |
+| 2 | 랜드마크 기반 PyTorch 모델 + ONNX 내보내기 (`tools/train_torch.py`) | 30% | ✅ 완료 — MLP 95.3% > 규칙 91.6% |
+| 3 | 앱 통합 — onnxruntime 추론, AI 판정 모드, 알림 피드백 라벨 수집 | 25% | ⬜ 미착수 |
+| 4 | MediaPipe Solutions → Tasks API 이전 | 20% | ⬜ 미착수 |
+| | **합계** | 100% | **55%** |
+
+```
+[■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□□] 55%
+```
+
+"AI가 실제로 거북목을 판정하는 앱" 관점에서는 약 40% — Phase 3이 끝나야 사용자가 체감하는
+변화가 생기고, 데이터가 1명·2세션이라 모델 신뢰도도 아직 낮다.
+
+### 지금 바로 할 수 있는 것 — 데이터 세션 추가 수집
+
+도구는 완성돼 있어 실행만 하면 된다. 세션 3개 이상 더 모으면 GRU 불안정(early stopping 용 val 이
+같은 세션에서 나오는 문제)이 해소되고, 5개 이상이면 지표를 믿을 만해진다.
+
+```bash
+python tools/collect_labels.py --person taeok      # 카메라 위치·조명을 바꿔가며 2~3분씩
+python tools/train_torch.py                        # 재실행하면 리포트·ONNX 자동 갱신
+```
+
+다른 사람 데이터는 `--person <이름>` 으로 구분한다. 3명 이상 모이면 `cross_validate()` 의 그룹
+키를 `person_id` 로 바꿔 **사람 단위** 검증으로 전환한다 (`leave_one_group_out` 은 그룹 열만 바꾸면 됨).
+
+### Phase 3 — 앱 통합 (다음 작업)
+
+목표: 학습된 MLP 를 앱에서 실시간 추론하고, 사용자가 "AI 판정 모드"를 켜면 AI 가 판정 권한을 갖는다.
+
+| 항목 | 설계 방향 |
+|---|---|
+| 추론 모듈 | `src/onnx_advisor.py` (신규) — `onnxruntime` 으로 `dataset/mlp_model.onnx` 로드, `feature_norm.json` 의 mean/std 로 **학습과 동일하게** 표준화 후 추론. torch 는 배포하지 않는다 |
+| 피처 변환 | `tools/train_torch.py` 의 `normalize_landmarks()` 와 같은 계산을 앱에서 재현 (랜드마크 13개 → 52차원). 공통 함수로 뽑아 두 곳이 같은 코드를 쓰게 한다 |
+| 판정 모드 | `config.json` 에 `"judge_mode": "rule" \| "ai"` 추가. 기본은 `rule`(검증된 v1 동작 유지). `ai` 모드에서도 랜드마크 인식 실패·모델 로드 실패 시 규칙 기반으로 fallback |
+| 히스테리시스 | AI 확률에도 진입/복귀 기준을 다르게(예: 0.6 진입 / 0.4 복귀) 둬 플래핑 방지 — 규칙 기반과 같은 원리 |
+| **알림 피드백 라벨 수집** | 거북목 알림에 "맞아요 / 아니에요" 버튼. 응답이 있을 때만 그 시점 랜드마크 + 사용자 라벨을 `dataset/feedback_labels.csv` 에 저장. **판정 결과 자체를 라벨로 쓰지 않는다** — 그건 판정기의 오류를 그대로 학습하는 순환 논리다. 사람이 준 라벨만 쌓는다 |
+| 트레이 표시 | 툴팁에 `판정: AI 87% (규칙: 정상)` 처럼 두 판정을 나란히 |
+| 의존성 | 배포 `requirements.txt` 에 `onnxruntime` 추가 (~10MB). PyInstaller spec 에 `.onnx`·`feature_norm.json` 포함 |
+
+### Phase 4 — MediaPipe Tasks API 이전
+
+`mp.solutions.pose` 는 Google 이 legacy 로 둔 API 다 (mediapipe 0.10.9 고정, `protobuf<4` 핀도 이 때문).
+`mediapipe.tasks.python.vision.PoseLandmarker` 로 옮기면 최신 모델·GPU delegate·유지보수를 받을
+수 있다. `.task` 모델 파일 로드, `LIVE_STREAM` 모드 콜백, 랜드마크 접근 방식이 달라 `src/detector.py`
+와 PyInstaller spec 을 함께 손봐야 한다. AI 작업과 독립적이라 별도 단계로 잡는다.
+
+### 보류·추후 검토
+
+- **로그인/계정 기능** — 의도적으로 보류. Supabase Auth + Google OAuth 까지 구현했으나 Steam/MS
+  Store/Google Play 배포 목표에 맞춰 제거. 로컬 전용으로도 출시 가능하고, Google Play 는 계정 기능을
+  넣는 순간 계정 삭제 기능·개인정보처리방침을 요구한다. 필요해지면 커스텀 URI 스킴 등으로 재검토.
+- **데이터 증강 실험** — Phase 2 기준선이 나왔으므로 "보간 증강 있음 vs 없음" 비교 가능. 합성 행은
+  `session_id` 에 `aug_` 접두어로 구분하고 학습에만 쓴다(검증은 실제 행만).
+- v1.0 마무리: 신규 PC 에서 exe 실행 검증 / 자동 업데이트(GitHub Releases) / 주간·월간 통계 대시보드 /
+  Windows 시작 프로그램 등록
 
 ---
 

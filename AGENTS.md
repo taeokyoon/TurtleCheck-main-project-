@@ -14,6 +14,11 @@
   판정 권한은 여전히 규칙 기반(`src/detector.py`)에 있다** — AI는 참고용 보조 신호일 뿐 판정을
   대체하지 않는다. 배경은
   [docs/superpowers/specs/2026-08-04-rule-validation-model-design.md](docs/superpowers/specs/2026-08-04-rule-validation-model-design.md) 참고.
+- **Phase 2 (2026-09, 완료)**: 원시 랜드마크(상체 13개)를 어깨 기준 정규화한 52차원 입력으로 MLP·GRU 를
+  학습시켜 규칙 기반과 3자 비교했다(`tools/train_torch.py`, `dataset/torch_report.md`). **MLP 95.3% >
+  규칙 91.6%** (1명·2세션 LOSO). 결과는 ONNX(`dataset/mlp_model.onnx`)로 내보냈고 아직 앱엔 통합되지
+  않았다. 전체 로드맵·진행률(55%)과 다음 단계(Phase 3 앱 통합)는 DEVELOP.md의
+  [로드맵 및 진행 현황](DEVELOP.md#로드맵-및-진행-현황) 참고.
 
 자세한 내용은 아래 문서를 반드시 참고한다.
 
@@ -49,25 +54,32 @@
 
 ## 로그인/계정 기능
 
-의도적으로 제거된 상태다. Firebase → Supabase Auth 이전까지 시도했으나, 최종 배포 목표(Steam/MS Store/Google Play)를 고려해 핵심 감지 기능 우선으로 전면 제거했다. 관련 코드를 다시 추가하기 전에 `DEVELOP.md`의 [다음 과제](DEVELOP.md#다음-과제) 섹션을 먼저 확인할 것.
+의도적으로 제거된 상태다. Firebase → Supabase Auth 이전까지 시도했으나, 최종 배포 목표(Steam/MS Store/Google Play)를 고려해 핵심 감지 기능 우선으로 전면 제거했다. 관련 코드를 다시 추가하기 전에 `DEVELOP.md`의 [로드맵 및 진행 현황](DEVELOP.md#로드맵-및-진행-현황) 섹션을 먼저 확인할 것.
 
 ## 런타임 환경
 
 - Python 3.10+ 필수 (`float | None` 타입 힌트 사용)
 - 의존성: `requirements.txt` 참고
+- **[중요] `tools/requirements.txt`를 설치해도 `protobuf<4`가 유지돼야 한다.** onnx 1.17+ 가 protobuf 7을
+  끌어오면 mediapipe 0.10.9가 깨져 배포 앱까지 실행 불가가 된다 (2026-09-22 실제 발생, `onnx<1.17` 핀으로 해결).
 - 생성 파일: `logs/` 디렉터리 자동 생성 (`.gitignore` 적용)
 
 ## 검증 도구 (`tools/`)
 
 | 파일 | 역할 |
 |---|---|
-| `tools/collect_labels.py` | 라벨링 데이터 수집 (개발 전용, 배포 앱과 무관) |
+| `tools/collect_labels.py` | 라벨링 데이터 수집 v2 — `--person` 필수. 1실행=1세션, n/t/p 키로 라벨 전환, 5Hz로 `dataset/posture_v2.csv`에 피처 4개 + 상체 랜드마크 13개(x,y,z,v) 저장 (개발 전용) |
+| `tools/test_collect_labels.py`, `tools/test_detector.py` | 수집 도구 헬퍼·detector 확장 메서드 pytest |
+| `tools/train_torch.py` | 원시 랜드마크 → 어깨 정규화 52차원 → MLP·GRU 학습, 세션 단위 LOSO 로 규칙 기반과 3자 비교, ONNX 내보내기 (`dataset/torch_report.md`, `*.onnx`, `feature_norm.json`) |
+| `tools/test_train_torch.py` | 피처·시퀀스·분할·표준화·모델 shape·ONNX 동일성 pytest |
+| `tools/plot_report_figures.py` | `dataset/torch_report.md` 숫자를 읽어 결과보고서용 한글 그래프(`dataset/report_figures/`) 생성. 재학습 없음 |
 | `tools/train_model.py` | 세션 단위 train/test 학습·검증 리포트 생성 + 전체 데이터로 재학습해 `dataset/model.pkl`/`model_weights.json` 내보내기 |
 | `tools/test_train_model.py` | `train_model.py`의 순수 로직 함수 pytest (`cd tools && pytest`) |
 | `tools/requirements.txt` | 학습 도구 전용 의존성(pandas, scikit-learn, pytest) — 배포용 `requirements.txt`와 분리 |
 
-판정 로직(`src/detector.py`)은 그대로 유지되며, `PostureDetector.last_avg_features` 속성만
-AI 보조 지표가 읽어갈 수 있도록 추가됐다(판정 로직 자체는 변경 없음). scikit-learn은 학습
+판정 로직(`src/detector.py`)은 그대로 유지되며, 읽기 전용 확장만 두 개 추가됐다(판정 로직 자체는
+변경 없음): AI 보조 지표가 읽어가는 `PostureDetector.last_avg_features` 속성과, 수집 도구가 원시
+랜드마크를 읽어가는 `process_frame_with_landmarks()` 메서드(`process_frame()`은 이를 호출해 피처만 반환). scikit-learn은 학습
 도구(`tools/`)에서만 쓰이고, 배포 앱(`src/ai_advisor.py`)은 가중치 숫자만 읽어 순수 파이썬으로
 시그모이드를 계산한다(무거운 의존성 없음).
 

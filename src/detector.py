@@ -120,13 +120,22 @@ class PostureDetector:
 
         return PostureFeatures(y_score, z_forward, head_tilt, ear_z_offset)
 
-    def process_frame(self, frame) -> "PostureFeatures | None":
-        """BGR 프레임을 받아 자세 피처 벡터 반환. 감지 실패 시 None."""
+    def process_frame_with_landmarks(self, frame) -> "tuple[PostureFeatures | None, object]":
+        """BGR 프레임 → (자세 피처 벡터, MediaPipe 랜드마크 33개 리스트).
+        사람 미감지 시 (None, None). 랜드마크는 있지만 피처 계산이 거부된 경우
+        (손 가림·측면 촬영 등)엔 (None, 랜드마크).
+        판정에는 쓰이지 않고, 학습 데이터 수집 도구(tools/collect_labels.py)가 원시 랜드마크를 읽어간다."""
         with self._lock:
             result = self._pose.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
             if not result.pose_landmarks:
-                return None
-            return self._calc_features(result.pose_landmarks.landmark)
+                return None, None
+            landmarks = result.pose_landmarks.landmark
+            return self._calc_features(landmarks), landmarks
+
+    def process_frame(self, frame) -> "PostureFeatures | None":
+        """BGR 프레임을 받아 자세 피처 벡터 반환. 감지 실패 시 None."""
+        features, _ = self.process_frame_with_landmarks(frame)
+        return features
 
     def process_frame_visual(self, frame) -> "tuple[PostureFeatures | None, object]":
         """BGR 프레임 처리 후 (features, rgb_annotated) 반환. 시작 창 시각화 전용."""
